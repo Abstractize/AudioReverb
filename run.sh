@@ -1,6 +1,2 @@
-mkdir -p build && cd build
-nasm -felf64 -o audio.o ../main.asm
-ld -o audio audio.o
-./audio
-
-cd ..
+docker build . -t audio-reverb:latest
+docker run -it --rm audio-reverb:latest
