@@ -5,22 +5,27 @@ section .data
   k: db 10
   filename: db "song.wav", 0
   new_filename: db "newsong.wav", 0
-  bytes_to_read: dd 105054
+  bytes_to_read: dq 105054
   value_a: dw 0x0180 ; binary: 0 000 0001.1000 0000 nondecimal: 384 decimal: 1.5
   value_b: dw 0x8340 ; binary: 1 000 0011.0100 0000 nondecimal:-832 decimal:-3.25
      ; result 0x04C0 ; binary: 0 000 0100.1100 0000 nondeciaml:-448 decimal:-1.75
+  newline: dq 10
   ; VARIABLES ;
 section .bss
+  ;;; WRITING VARIABLES ;;;
   offsetcounter resq 1 ; Counter for the offset
-  stored_read_value resq 1 ; Store Value from Reading
-  filecouter resq 1
   filesize resq 1
+
+  ;;; HEADER VARIABLES ;;;
+  stored_read_value resq 1 ; Store Value from Reading
   data_one resq 1
   data_two resq 1
   data_tre resq 1
   data_for resq 1
-  newfilecounter resq 1
-  newline resq 1
+
+  ;;; DATA VARIABLES ;;;
+  reverb resq 1
+  data_read_value resq 2; 
 
 section .text
   global _start
@@ -28,13 +33,14 @@ section .text
 _start:
   mov rax, 0
 ; Initialize Values
-  mov [filecouter], rax;
-  mov [newfilecounter], rax;
   mov [offsetcounter], rax
   mov rax, 10
   mov [newline], rax;
+  mov rax, 1
+  mov [reverb], rax;
 ; Read and Copy Until Data
   call _read_and_copy_until_data
+  call _apply_effect
   jmp _end
 
 ;;; COPY HEADER FILE ;;;
@@ -91,7 +97,7 @@ _read_and_copy:
   mov rdx, 0644o
   syscall
 
-; Write to the File
+; Write to the New File
   push rax
 ; Offset
   mov rdi, rax
@@ -113,8 +119,6 @@ _read_and_copy:
 ; Set Variables for NEXT LOOP
   mov rax, 1
   add [offsetcounter], rax
-  add [filecouter], rax
-  add [newfilecounter], rax
 ; Assign values to check data word
   mov rax, [data_two]
   mov [data_one], rax
@@ -126,7 +130,7 @@ _read_and_copy:
   mov [data_for], rax
   
 ; PRINT TO CHECK
-  ;call _print_check
+  call _print_check
 
 ; LOOPS
   jmp _read_and_copy_until_data
@@ -138,8 +142,26 @@ _print_check:
   print data_for
   print newline
   ret
-;;; PROCESS DATA ;;;
-_readfile:
+
+;;; Effect Processing ;;;
+_apply_effect:
+  call _apply_reverb
+  call _deapply_reverb
+  ret
+
+_apply_reverb:
+  mov rax, 1
+  cmp [reverb], rax
+  je _reverb_if
+  ret
+
+_reverb_if:
+  mov rax, [bytes_to_read]
+  cmp [offsetcounter], rax
+  jl _reverb
+  ret
+
+_reverb:
 ; Open File
   mov rax, SYS_OPEN
   mov rdi, filename
@@ -155,7 +177,7 @@ _readfile:
   mov rdx, 0
   syscall ; Execute Offset
   mov rax, SYS_READ
-  mov rsi, stored_read_value
+  mov rsi, data_read_value
   mov rdx, 2 ; Amount of Bytes to Read
   syscall
 ; Close File
@@ -163,62 +185,52 @@ _readfile:
   pop rdi
   syscall
 
-  call _printfile
+; APPLY REVERB
 
+  print data_read_value
+  ; FOR NOW WE'LL COPY
+
+; Open New File
+  mov rax, SYS_OPEN
+  mov rdi, new_filename
+  mov rsi, O_WRONLY
+  mov rdx, 0644o
+  syscall
+
+; Write to the New File
+  push rax
+; Offset
+  mov rdi, rax
+  mov rax, SYS_LSEEK
+  mov rsi, [offsetcounter]
+  mov rdx, 0
+  syscall ; Execute Offset
+; Copy to new File
+  mov rax, SYS_WRITE
+  mov rsi, data_read_value
+  mov rdx, 2
+  syscall
+
+; Close File
+  mov rax, SYS_CLOSE
+  pop rdi
+  syscall
+
+  ; FOR NOW WE'LL COPY
   mov rax, 2
   add [offsetcounter], rax
 
+  jmp _reverb_if
+
+_deapply_reverb:
+  mov rax, 0
+  cmp [reverb], rax
+  je _dereverb_if
   ret
 
-_openfile:
-  
-  ret
-  
-_getfileinfo:
-  
+_dereverb_if:
   ret
 
-_closefile:
-
-  ret
-
-_printfile:
-  print stored_read_value
-  ret
-
-_writefile:
-  ret
-
-_check_header:
-; Checks if file is RIFF type
-; If it is correct goes to check other data
-; Else exits the program with error
-  ret
-
-_apply_header:
-; get header
-; copy header
-; store header in new file
-  ret
-_check_fmt:
-; Checks if file is fmt type
-; If is correct goes to apply fmt
-; Else exits the program with error
-  ret
-_apply_fmt:
-; get fmt
-; copy fmt
-; store fmt in new File
-  ret
-
-_check_data:
-; Checks if file is DATA type
-; If is correct goes to apply fmt
-; Else exits the program with error
-  ret
-
-_apply_reverb:
-  ret
 
 ; ;; FIXED POINT ARITHM;;;
 _add:
