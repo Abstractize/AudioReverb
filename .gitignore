@@ -143,3 +143,6 @@ $RECYCLE.BIN/
 
 # Builds
 **/build/**
+
+*.wav
+audio
