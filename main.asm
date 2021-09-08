@@ -287,22 +287,23 @@ _reverb:
   call _multiply; rax = rax * rbx = (1-alpha) x(n)
 
   mov rcx, rax; = r14 = (1-alpha) x(n)
-  ;call _get_circular_buffer; rax = y(n-k)
-  ;shl rax, 40
-  ;shr rax, 40 ; adjusts to 24 bits
+  call _get_circular_buffer; rax = y(n-k)
+  shl rax, 40
+  shr rax, 40 ; adjusts to 24 bits
 
-  ;mov rbx, rax; rbx = rax = y(n-k)
-  ;mov rax, [alpha]; rax = alpha
+  call _break_on_k
 
-  ;call _multiply; rax = alpha * y(n-k)
+  mov rbx, rax; rbx = rax = y(n-k)
+  mov rax, [alpha]; rax = alpha
 
-  mov rbx, 0 ; rbx = alpha * y(n-k)
+  call _multiply; rax = alpha * y(n-k)
+
+  mov rbx, rax ; rbx = alpha * y(n-k)
   mov rax, rcx ; rax = x(1-alpha) x(n)
   
   call _add; rax = rax + rbx = x(n) + y(n-k)
 
   call _store_circular_buffer; stores in circular buffer
-
 
   ret
 
@@ -331,6 +332,7 @@ _store_circular_buffer:
   ret
 
 _get_circular_buffer:
+
   mov rdi, [counter]
   mov rsi, [k]
   ; rdi % rsi
@@ -340,6 +342,7 @@ _get_circular_buffer:
   mov rax, rdx
   imul rax, 4; * 4 because of q
   mov rax, [buffer + rax]
+
   ret
 
 ;;; Conversions ;;;
@@ -455,7 +458,6 @@ _transform_b:
 
 _multiply:
 ;;; PREPARE ;;;
-  
   shl rax, 40 ;clean rax to 24 bits
   mov rsi, rax; copy value
   shr rsi, 63 ; get sing of a
@@ -471,10 +473,12 @@ _multiply:
 
   ; r12 = d 8 bits + 00
   shl rbx, 40 ;clean rbx to 24 bits
-  shr rbx, 32 ;clean rbx to 32 bits
   mov rdi, rbx; copy value
   shr rdi, 63; get sign of b
+  shr rbx, 32 ;clean rbx to 32 bits
+  
   call _neg_to_pos_b
+
   mov r12, rbx
   shl r12, 48 ; clean r12 to 16 bits
   shr r12, 48 ; clean r12 to 16 bits
