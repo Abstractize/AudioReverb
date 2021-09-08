@@ -227,8 +227,6 @@ _reverb_loop:
   pop rdi
   syscall
 
-  ;print data_read_value; check if is comming in groups of 2
-  ;print newline
 ; APPLY REVERB
 
 ; Effect
@@ -274,31 +272,38 @@ _reverb_loop:
 
 _reverb:
   ; rax = x(n)
+
+  mov rcx, rax ; r14 = x(n)
+
+  mov rax, [alpha]; rax = alpha
+  xor rax, 0xFFFFFF; rax = -alpha
   
-  mov r14, rax ; r14 = x(n)
-  
-  ;mov rax, [alpha]; rax = alpha
-  ;xor rax, 0xFFFF00; rax = -alpha
-  
-  ;mov rbx, rax; = rav = -alpha
-  ;mov rax, 0x100; mov 1.00 -> dec 1.0
-  ;call _add; rax = 1-alpha
-  ;mov rbx, r14; rbx = x(n)
-  ;call _multiply; rax = rax * rbx = (1-alpha) x(n)
-  ;mov r14, rax; = r14 = (1-alpha) x(n)
-  call _get_circular_buffer; rax = y(n-k)
-  shl rax, 40
-  shr rax, 40 ; adjusts to 24 bits
+  mov rbx, rax; = rav = -alpha
+  mov rax, 0x100; mov 1.00 -> dec 1.0
+  call _add; rax = 1 - alpha
+
+  mov rbx, rcx; rbx = x(n)
+
+  call _multiply; rax = rax * rbx = (1-alpha) x(n)
+
+  mov rcx, rax; = r14 = (1-alpha) x(n)
+  ;call _get_circular_buffer; rax = y(n-k)
+  ;shl rax, 40
+  ;shr rax, 40 ; adjusts to 24 bits
 
   ;mov rbx, rax; rbx = rax = y(n-k)
   ;mov rax, [alpha]; rax = alpha
-  ;call _multiply; rax = alpha * y(n-k)
-  mov rbx, rax ; rbx = alpha * y(n-k)
-  mov rax, r14 ; rax = x(1-alpha) x(n)
 
+  ;call _multiply; rax = alpha * y(n-k)
+
+  mov rbx, 0 ; rbx = alpha * y(n-k)
+  mov rax, rcx ; rax = x(1-alpha) x(n)
+  
   call _add; rax = rax + rbx = x(n) + y(n-k)
 
   call _store_circular_buffer; stores in circular buffer
+
+
   ret
 
 _deapply_reverb:
@@ -430,51 +435,83 @@ _add:
 
   ret
 
+_neg_to_pos_a:
+  cmp rsi, 0
+  jne _transform_a
+  ret
+
+_transform_a:
+  xor eax, 0xFFFFFF00
+  ret
+
+_neg_to_pos_b:
+  cmp rdi, 0
+  jne _transform_b
+  ret
+
+_transform_b:
+  xor ebx, 0xFFFFFF00
+  ret
+
 _multiply:
 ;;; PREPARE ;;;
-  ; r14 = b 8 bits
-
-  shl rax, 8 ;clean rax to 24 bits
-  shr rax, 8 ;clean rax to 24 bits
+  
+  shl rax, 40 ;clean rax to 24 bits
+  mov rsi, rax; copy value
+  shr rsi, 63 ; get sing of a
+  shr rax, 32 ;clean rax to 32 bits AAAA.BB00
+  call _neg_to_pos_a
+  ; r14 = b 8 bits + 00
   mov r14, rax
-  shl r14, 24 ; clean r14 to 8 bits
-  shr r14, 24 ; clean r14 to 8 bits
+  shl r14, 48 ; clean r14 to 16 bits
+  shr r14, 48 ; clean r14 to 16 bits
   ; r15 = a 16 bits
-  shr rax, 8; 0xAAAABB -> 0xAAAA
+  shr rax, 16; 0xAAAABB -> 0xAAAA
   mov r15, rax
-  ; r12 = d 8 bits 
-  shl rbx, 8 ;clean rbx to 24 bits
-  shr rbx, 8 ;clean rbx to 24 bits
+
+  ; r12 = d 8 bits + 00
+  shl rbx, 40 ;clean rbx to 24 bits
+  shr rbx, 32 ;clean rbx to 32 bits
+  mov rdi, rbx; copy value
+  shr rdi, 63; get sign of b
+  call _neg_to_pos_b
   mov r12, rbx
-  shl r12, 24 ; clean r12 to 8 bits
-  shr r12, 24 ; clean r12 to 8 bits
+  shl r12, 48 ; clean r12 to 16 bits
+  shr r12, 48 ; clean r12 to 16 bits
   ; r13b = c 16 bits
-  shr rbx, 8; 0xCCCCDD -> 0xCCCC
+  shr rbx, 16; 0xCCCCDD00 -> 0xCCCC
   mov r13, rbx
 
 ;;; DO ;;;
   ; r11w high
-  mov r11, r15
-  imul r11, r13 ; a * c
-  shl r11, 8 ; << 8
+  mov r11d, r15d
+  imul r11d, r13d ; a * c
+  shl r11d, 16 ; << 16
+
   ; r10w mid
-  mov r10, r14
-  imul r10, r13; b * c
-  mov rax, r10
-  mov r10, r15
-  imul r10, r12 ; a * d
-  add r10, rax; a * d + b * c 
+  mov r10d, r14d
+  imul r10d, r13d; b * c
+  mov eax, r10d
+  mov r10d, r15d
+  imul r10d, r12d ; a * d
+  add r10d, eax; a * d + b * c 
+
   ; r9w low
-  mov r9, r14
-  imul r9, r12; b * d
-  shr r9, 8; >> 8
+  mov r9d, r14d
+  imul r9d, r12d; b * d
+  shr r9d, 16; >> 16
+
   ; high << 8 + mid + low >> 8
-  mov rax, 0
-  add rax, r11
-  add rax, r9
-  add rax, r10
+  mov eax, 0
+  add eax, r11d
+  add eax, r9d
+  add eax, r10d
+
+  ; transform to negative if needed
+  xor rsi, rdi
+  call _neg_to_pos_a
   ; clear to 24 bits
-  shl rax, 40
+  shl rax, 32
   shr rax, 40
   ret
 
