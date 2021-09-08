@@ -279,6 +279,7 @@ _reverb:
   
   ;mov rax, [alpha]; rax = alpha
   ;xor rax, 0xFFFF00; rax = -alpha
+  
   ;mov rbx, rax; = rav = -alpha
   ;mov rax, 0x100; mov 1.00 -> dec 1.0
   ;call _add; rax = 1-alpha
@@ -403,26 +404,19 @@ _add:
   ; rbx b sign
   shr rbx, 15 ; moves sign to bit 1
 
-  call _break_on_k
-
   ;;; DECIMAL ;;;
   ; calculate decimal 8 bit
   add r13, r10 ; r13 = r13 + r10 
   
-  call _break_on_k
-
   ;;; INT ;;;
   ; calculate int
   add r14, r11
-
-  call _break_on_k
 
   ;;; SIGN ;;;
   mov r15, r14; overflow + 15
   shr r15, 15; overflow
 
   xor rax, rbx
-  xor rax, r15
 
   ; add all
   shl rax, 15
@@ -430,84 +424,16 @@ _add:
   shl rax, 8
   xor rax, r13; add float
 
-  call _break_on_k
-
   ; clear to 24 bits
   shl rax, 40
   shr rax, 40
 
   ret
 
-_add_a_neg_b_pos:
-  ; a = r14
-  ; b = r10
-  mov r15, r14; r15 = neg = r14
-  xor r15, 0x7FFF; |neg| = r15
-
-  ; get sign
-  cmp r15, r10; compare whos bigger
-  jg _add_a_neg_gt_b_pos; a > b
-  jl _add_a_neg_lw_b_pos; a < b
-  call _add_a_eq_b; a = b
-
-  ; add values
-  xor r14, r10
-
-  shl rax, 15; mov sign to 16 bit
-  xor rax, r14; add int part
-
-  ret
-
-_add_a_pos_b_neg:
-  ; a = r14
-  ; b = r10
-  mov r15, r10; r15 = neg = r10
-  xor r15, 0x7FFF; |neg| = r15
-  
-  ; get sign
-  cmp r14, r15; compare whos bigger
-  cmp r15, r10; compare whos bigger
-  jg _add_a_pos_gt_b_neg; a > b
-  jl _add_a_pos_lw_b_neg; a < b
-  call _add_a_eq_b; a = b
-
-  ; add values
-  xor r14, r10
-  
-  shl rax, 15; mov sign to 16 bit
-  xor rax, r14; and int part
-  
-  ret
-
-_add_equal:
-  xor r14, r11; a + b
-  shl rax, 15
-  xor rax, r14
-  ret
-
-_add_a_neg_gt_b_pos:
-  mov rax, 1
-  ret
-
-_add_a_neg_lw_b_pos:
-  mov rax, 0
-  ret
-
-_add_a_pos_gt_b_neg:
-  mov rax, 0
-  ret
-
-_add_a_pos_lw_b_neg:
-  mov rax, 1
-  ret
-
-_add_a_eq_b:
-  mov rax, 0
-  ret
-
 _multiply:
 ;;; PREPARE ;;;
   ; r14 = b 8 bits
+
   shl rax, 8 ;clean rax to 24 bits
   shr rax, 8 ;clean rax to 24 bits
   mov r14, rax
@@ -525,6 +451,7 @@ _multiply:
   ; r13b = c 16 bits
   shr rbx, 8; 0xCCCCDD -> 0xCCCC
   mov r13, rbx
+
 ;;; DO ;;;
   ; r11w high
   mov r11, r15
