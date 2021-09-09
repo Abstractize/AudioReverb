@@ -11,6 +11,8 @@ section .data
   counterhead: db "# Count: "
   get: db "get: ", 0
   store: db "store: ", 0
+  reverbtag: db "reverb: ", 10
+  dereverbtag: db "dereverb: ", 10
   ; VARIABLES ;
 section .bss
   k resq 1
@@ -32,6 +34,7 @@ section .bss
   ;;; DATA VARIABLES ;;;
   reverb resq 1
   data_read_value resw 1; 
+  data_read_value_k resw 1;
 
   ;;; CIRCULAR BUFFER ;;;
   array_value resw 1
@@ -41,7 +44,6 @@ section .text
   global _start
 
 _start:
-  call _create_file
   mov rax, 0
 ; Initialize Values
   mov [offsetcounter], rax
@@ -67,11 +69,9 @@ _start:
 
 ; Read and Copy Until Data
   call _read_and_copy_until_data
-  call _apply_effect
+  call _break
+  call _apply_reverb
   jmp _end
-
-_create_file:
-  ret
 
 _initialize_circular_buffer:
   ; r15 as counter
@@ -186,18 +186,20 @@ _read_and_copy:
   jmp _read_and_copy_until_data
 
 ;;; Effect Processing ;;;
-_apply_effect:
-  call _apply_reverb
-  call _deapply_reverb
-  ret
-
 _apply_reverb:
+  mov rcx, [reverb]
+  call _break
   mov rax, 1
   cmp [reverb], rax
   je _reverb_if
+  call _break
+  mov rax, 0
+  cmp [reverb], rax
+  je _dereverb_if
   ret
 
 _reverb_if:
+  print reverbtag
   mov rax, [bytes_to_read]
   cmp [offsetcounter], rax
   jl _reverb_loop
@@ -305,13 +307,133 @@ _reverb:
 
   ret
 
-_deapply_reverb:
-  mov rax, 0
-  cmp [reverb], rax
-  je _dereverb_if
+_dereverb_if:
+  print dereverbtag
+  mov rax, [bytes_to_read]
+  cmp [offsetcounter], rax
+  jl _dereverb_loop
+  ret
   ret
 
-_dereverb_if:
+_clear_data_read_value_k:
+  mov r15, 0
+  mov [data_read_value_k], r15
+  ret
+
+_dereverb_loop:
+; Open File
+  mov rax, SYS_OPEN
+  mov rdi, filename
+  mov rsi, O_RDONLY
+  mov rdx, 0
+  syscall
+
+; Read File for x(n)
+  push rax
+  mov rdi, rax
+  mov rax, SYS_LSEEK
+  mov rsi, [offsetcounter]
+  mov rdx, 0
+  syscall ; Execute Offset
+  mov rax, SYS_READ
+  mov rsi, data_read_value
+  mov rdx, 2 ; Amount of Bytes to Read
+  syscall
+
+; Read File for x(n - k)
+  push rax
+  mov rdi, rax
+  mov rax, SYS_LSEEK
+  mov rsi, [offsetcounter]
+  sub rsi, [k]
+  mov rdx, 0
+  syscall ; Execute Offset
+  mov rax, SYS_READ
+  mov rsi, data_read_value_k
+  mov rdx, 2 ; Amount of Bytes to Read
+  syscall
+
+; Close File
+  mov rax, SYS_CLOSE
+  pop rdi
+  syscall
+
+; Checks if rsi < 0
+  cmp rsi, 0
+  jl _clear_data_read_value_k
+; APPLY DEREVERB
+
+; Effect
+  ; rax = x(n)
+  mov rax, [data_read_value]; Int is 16 Bits
+  call _convert_int_fixed; WAV Has Samples as Ints, convert to 24 bits Fixed
+  mov rbx, rax
+  mov rax, [data_read_value_k]
+  call _convert_int_fixed 
+  call _dereverb ; returns converted value in rax
+  call _convert_fixed_int; converts from fixed to 16 bits int
+  mov [data_read_value], ax
+
+; Open New File
+  mov rax, SYS_OPEN
+  mov rdi, new_filename
+  mov rsi, O_WRONLY
+  mov rdx, 0644o
+  syscall
+
+; Write to the New File
+  push rax
+; Offset
+  mov rdi, rax
+  mov rax, SYS_LSEEK
+  mov rsi, [offsetcounter]
+  mov rdx, 0
+  syscall ; Execute Offset
+; Copy to new File
+  mov rax, SYS_WRITE
+  mov rsi, data_read_value; 16 bits
+  mov rdx, 2
+  syscall
+
+; Close File
+  mov rax, SYS_CLOSE
+  pop rdi
+  syscall
+
+  mov rax, 2
+  add [offsetcounter], rax
+  mov rax, 1
+  add [counter], rax
+
+  jmp _dereverb_if
+
+_dereverb:
+  ; rax = x(n-k)
+  ; rbx = x(n)
+  ; y(n) = (1-alpha) x(n) + alpha y(n-k) 
+  mov rcx, rbx ; rcx = x(n)
+
+  mov rbx, rax ; rbx = x(n-k)
+  mov rax, [alpha]; rax = alpha
+  
+  call _multiply; rax = alpha x(n-k)
+  mov rbx, rax; rbx = alpha x(n-k)
+  xor rbx, 0xFFFFFF; rbx = - alpha x(n-k)
+  mov rax, rcx; rax = x(n)
+
+  call _add
+
+  ;mov rcx, rax
+  ;mov rbx, [alpha]
+  ;xor rbx, 0xFFFFFF
+  ;mov rax, 0x100
+  ;call _add
+
+  ;invert rax
+  mov rax, 0x100
+  
+  mov rbx, rcx
+  call _multiply
   ret
 
 ;;; CIRCULAR BUFFER ;;;
